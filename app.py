@@ -89,7 +89,7 @@ def convert_txt_to_docx(content):
             run.font.ascii_font = "맑은 고딕"
             run.font.eastasia_font = "맑은 고딕"
         
-        # ���시 파일로 저장
+        # 임시 파일로 저장
         with tempfile.NamedTemporaryFile(delete=False, suffix='.docx') as tmp:
             doc.save(tmp.name)
             return tmp.name
@@ -185,7 +185,7 @@ def highlight_keywords(content, keyword_notes):
         return None
 
 def main():
-    st.title("의료광고 표현법 검수 시스템")
+    st.title("의료광고 표현 검수 시스템")
     
     # 구글 시트에서 키워드 가져오기
     keyword_notes = get_keywords_from_sheet()
@@ -194,7 +194,7 @@ def main():
         return
     
     # 파일 업로드
-    uploaded_file = st.file_uploader("검수할 파일을 선택하세요", type=['txt', 'docx'])
+    uploaded_file = st.file_uploader("검수할 파일을 업로드해주세요.", type=['txt', 'docx'])
     
     if uploaded_file:
         if st.button("검수 시작"):
