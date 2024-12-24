@@ -194,28 +194,53 @@ def main():
         return
     
     # 파일 업로드
-    uploaded_file = st.file_uploader("검수할 파일을 업로드해주세요.", type=['txt', 'docx'])
+    uploaded_files = st.file_uploader("검수할 파일을 모두 업로드해주세요.", type=['txt', 'docx'], accept_multiple_files=True)
     
     if uploaded_file:
         if st.button("검수 시작"):
-            with st.spinner("검수 중..."):
-                result_path = highlight_keywords(uploaded_file, keyword_notes)
+            # 진행 상황을 보여줄 프로그레스 바
+            progress_bar = st.progress(0)
+
+            # 각 파일별 처리 결과를 저장할 리스트
+            results = []
+            
+            for i, uploaded_file in enumerate(uploaded_files):
+                with st.spinner(f"'{uploaded_file.name}' 검수 중..."):
+                    result_path = highlight_keywords(uploaded_file, keyword_notes)
                 
                 if result_path:
-                    # 결과 파일 다운로드 버튼
-                    with open(result_path, 'rb') as f:
-                        st.download_button(
-                            label="검수 결과 다운로드",
-                            data=f,
-                            file_name=f"검수결과_{uploaded_file.name}",
-                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-                        )
-                    
-                    # 임시 파일 삭제
-                    try:
-                        os.remove(result_path)
-                    except:
-                        pass
+                        # 결과 파일 읽기
+                        with open(result_path, 'rb') as f:
+                            file_data = f.read()
+                        
+                        # 결과 저장
+                        results.append({
+                            'name': f"검수결과_{uploaded_file.name}",
+                            'data': file_data
+                        })
+                        
+                        # 임시 파일 삭제
+                        try:
+                            os.remove(result_path)
+                        except:
+                            pass
+                
+                # 진행률 업데이트
+                progress = (i + 1) / len(uploaded_files)
+                progress_bar.progress(progress)
+            
+            # 모든 파일 처리 완료 후
+            if results:
+                st.success("모든 파일 검수가 완료되었습니다!")
+                
+                # 각 파일별 다운로드 버튼 생성
+                for result in results:
+                    st.download_button(
+                        label=f"{result['name']} 다운로드",
+                        data=result['data'],
+                        file_name=result['name'],
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                    )
 
 if __name__ == "__main__":
-    main() 
+    main()
