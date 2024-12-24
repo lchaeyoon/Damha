@@ -193,22 +193,24 @@ def main():
         st.error("키워드를 가져오지 못했습니다.")
         return
     
-    # 파일 업로드
-    uploaded_files = st.file_uploader("검수할 파일을 모두 업로드해주세요.", type=['txt', 'docx'], accept_multiple_files=True)
+    # 여러 파일 업로드
+    uploaded_files = st.file_uploader("검수할 파일을 모두 업로드 해주세요.", 
+                                    type=['txt', 'docx'], 
+                                    accept_multiple_files=True)
     
-    if uploaded_file:
+    if uploaded_files:
         if st.button("검수 시작"):
             # 진행 상황을 보여줄 프로그레스 바
             progress_bar = st.progress(0)
-
+            
             # 각 파일별 처리 결과를 저장할 리스트
             results = []
             
             for i, uploaded_file in enumerate(uploaded_files):
                 with st.spinner(f"'{uploaded_file.name}' 검수 중..."):
                     result_path = highlight_keywords(uploaded_file, keyword_notes)
-                
-                if result_path:
+                    
+                    if result_path:
                         # 결과 파일 읽기
                         with open(result_path, 'rb') as f:
                             file_data = f.read()
