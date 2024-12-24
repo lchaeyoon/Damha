@@ -196,8 +196,8 @@ def main():
         return
     
     # 여러 파일 업로드
-    uploaded_files = st.file_uploader("검수할 파일을 모두 업로드 해주세요.", 
-                                    type=['txt', 'docx'], 
+    uploaded_files = st.file_uploader("검수할 파일을 모두 업로드해주세요.",
+                                    type=['txt', 'docx'],
                                     accept_multiple_files=True)
     
     if uploaded_files:
@@ -205,73 +205,43 @@ def main():
             # 진행 상황을 보여줄 프로그레스 바
             progress_bar = st.progress(0)
             
-            # 각 파일별 처리 결과를 저장할 리스트
-            results = []
+            # ZIP 파일 생성을 위한 메모리 버퍼
+            zip_buffer = io.BytesIO()
             
-            # 각 파일 처리
-            for i, uploaded_file in enumerate(uploaded_files):
-                with st.spinner(f"'{uploaded_file.name}' 검수 중..."):
-                    result_path = highlight_keywords(uploaded_file, keyword_notes)
-                    
-                    if result_path:
-                        # 결과 파일 읽기
-                        with open(result_path, 'rb') as f:
-                            file_data = f.read()
+            # ZIP 파일 생성
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                for i, uploaded_file in enumerate(uploaded_files):
+                    with st.spinner(f"'{uploaded_file.name}' 검수 중..."):
+                        result_path = highlight_keywords(uploaded_file, keyword_notes)
                         
-                        # 결과 저장
-                        results.append({
-                            'name': f"검수결과_{uploaded_file.name}",
-                            'data': file_data,
-                            'path': result_path
-                        })
-                
-                # 진행률 업데이트
-                progress = (i + 1) / len(uploaded_files)
-                progress_bar.progress(progress)
+                        if result_path:
+                            # 결과 파일을 ZIP에 추가
+                            zip_file.write(
+                                result_path, 
+                                f"검수결과_{uploaded_file.name}"
+                            )
+                            
+                            # 임시 파일 삭제
+                            try:
+                                os.remove(result_path)
+                            except:
+                                pass
+                    
+                    # 진행률 업데이트
+                    progress = (i + 1) / len(uploaded_files)
+                    progress_bar.progress(progress)
             
             # 검수 완료 메시지
             st.success("모든 파일 검수가 완료되었습니다!")
             
-            # 다운로드 옵션 선택
-            st.write("### 다운로드 옵션")
-            download_option = st.radio(
-                "원하시는 다운로드 방식을 선택하세요:",
-                ["ZIP 파일로 한 번에 다운로드", "모든 파일 개별 다운로드"]
+            # ZIP 파일 다운로드 버튼
+            zip_buffer.seek(0)
+            st.download_button(
+                label="모든 검수 결과 다운로드 (ZIP)",
+                data=zip_buffer,
+                file_name="검수결과_전체.zip",
+                mime="application/zip"
             )
-            
-            if download_option == "ZIP 파일로 한 번에 다운로드":
-                # ZIP 파일 생성
-                zip_buffer = io.BytesIO()
-                with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
-                    for result in results:
-                        zip_file.writestr(result['name'], result['data'])
-                
-                # ZIP 파일 다운로드 버튼
-                zip_buffer.seek(0)
-                st.download_button(
-                    label="모든 검수 결과 다운로드 (ZIP)",
-                    data=zip_buffer,
-                    file_name="검수결과_전체.zip",
-                    mime="application/zip"
-                )
-            
-            else:  # "모든 파일 개별 다운로드"
-                # 모든 파일 개별 다운로드 버튼
-                for result in results:
-                    st.download_button(
-                        label=f"{result['name']} 다운로드",
-                        data=result['data'],
-                        file_name=result['name'],
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                        key=result['name']  # 고유 키 필요
-                    )
-            
-            # 임시 파일 삭제
-            for result in results:
-                try:
-                    os.remove(result['path'])
-                except:
-                    pass
 
 if __name__ == "__main__":
-    main()
+    main() 
