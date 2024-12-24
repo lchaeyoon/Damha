@@ -7,6 +7,8 @@ import os
 from pathlib import Path
 from datetime import datetime
 import tempfile
+import zipfile
+import io
 
 def get_keywords_from_sheet():
     """구글 시트에서 키워드와 사유를 가져오는 함수"""
@@ -206,42 +208,85 @@ def main():
             # 각 파일별 처리 결과를 저장할 리스트
             results = []
             
-            for i, uploaded_file in enumerate(uploaded_files):
-                with st.spinner(f"'{uploaded_file.name}' 검수 중..."):
-                    result_path = highlight_keywords(uploaded_file, keyword_notes)
-                    
-                    if result_path:
-                        # 결과 파일 읽기
-                        with open(result_path, 'rb') as f:
-                            file_data = f.read()
-                        
-                        # 결과 저장
-                        results.append({
-                            'name': f"검수결과_{uploaded_file.name}",
-                            'data': file_data
-                        })
-                        
-                        # 임시 파일 삭제
-                        try:
-                            os.remove(result_path)
-                        except:
-                            pass
-                
-                # 진행률 업데이트
-                progress = (i + 1) / len(uploaded_files)
-                progress_bar.progress(progress)
+            # ZIP 파일 생성을 위한 메모리 버퍼
+            zip_buffer = io.BytesIO()
             
-            # 모든 파일 처리 완료 후
-            if results:
-                st.success("모든 파일 검수가 완료되었습니다!")
+            # ZIP 파일 생성
+            with zipfile.ZipFile(zip_buffer, 'w', zipfile.ZIP_DEFLATED) as zip_file:
+                for i, uploaded_file in enumerate(uploaded_files):
+                    with st.spinner(f"'{uploaded_file.name}' 검수 중..."):
+                        result_path = highlight_keywords(uploaded_file, keyword_notes)
+                        
+                        if result_path:
+                            # 결과 파일 읽기
+                            with open(result_path, 'rb') as f:
+                                file_data = f.read()
+                            
+                            # 결과 저장
+                            results.append({
+                                'name': f"검수결과_{uploaded_file.name}",
+                                'data': file_data
+                            })
+                            
+                            # ZIP 파일에 추가
+                            zip_file.write(result_path, f"검수결과_{uploaded_file.name}")
+                            
+                            # 임시 파일 삭제
+                            try:
+                                os.remove(result_path)
+                            except:
+                                pass
+                    
+                    # 진행률 업데이트
+                    progress = (i + 1) / len(uploaded_files)
+                    progress_bar.progress(progress)
+            
+            # 검수 완료 메시지
+            st.success("모든 파일 검수가 완료되었습니다!")
+            
+            # 다운로드 옵션 선택
+            st.write("### 다운로드 옵션")
+            download_option = st.radio(
+                "원하시는 다운로드 방식을 선택하세요:",
+                ["ZIP 파일로 한 번에 다운로드", "개별 파일 다운로드", "모든 파일 개별 다운로드"]
+            )
+            
+            if download_option == "ZIP 파일로 한 번에 다운로드":
+                # ZIP 파일 다운로드 버튼
+                zip_buffer.seek(0)
+                st.download_button(
+                    label="모든 검수 결과 다운로드 (ZIP)",
+                    data=zip_buffer,
+                    file_name="검수결과_전체.zip",
+                    mime="application/zip"
+                )
+            
+            elif download_option == "개별 파일 다운로드":
+                # 파일 선택 드롭다운
+                selected_file = st.selectbox(
+                    "다운로드할 파일을 선택하세요:",
+                    [result['name'] for result in results]
+                )
                 
-                # 각 파일별 다운로드 버튼 생성
+                # 선택한 파일 다운로드 버튼
+                for result in results:
+                    if result['name'] == selected_file:
+                        st.download_button(
+                            label=f"{selected_file} 다운로드",
+                            data=result['data'],
+                            file_name=selected_file,
+                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        )
+            
+            else:  # "모든 파일 개별 다운로드"
+                # 모든 파일 개별 다운로드 버튼
                 for result in results:
                     st.download_button(
                         label=f"{result['name']} 다운로드",
                         data=result['data'],
                         file_name=result['name'],
-                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                        key=result['name']  # 고유 키 필요
                     )
 
 if __name__ == "__main__":
