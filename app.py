@@ -196,7 +196,7 @@ def main():
         return
     
     # 여러 파일 업로드
-    uploaded_files = st.file_uploader("검수할 파일을 모두 업로드해주세요.",
+    uploaded_files = st.file_uploader("검수할 파일을 모두 업로드 해주세요.",
                                     type=['txt', 'docx'],
                                     accept_multiple_files=True)
     
