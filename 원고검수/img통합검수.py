@@ -219,7 +219,7 @@ def create_review_document(text, keyword_notes):
     return doc_io
 
 def main():
-    st.title('🔍 의료광고 OCR 및 검수 시스템')
+    st.title('🔍 이미지 텍스트 추출 및 검수 시스템')
     st.markdown('---')
 
     # 이미지 업로드
