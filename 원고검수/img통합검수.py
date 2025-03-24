@@ -218,6 +218,16 @@ def create_review_document(text, keyword_notes):
     doc_io.seek(0)
     return doc_io
 
+# 이미지 크기 조절 함수 추가
+def resize_image(image, max_width=800):
+    """이미지 크기 조절"""
+    width, height = image.size
+    if width > max_width:
+        ratio = max_width / width
+        new_size = (max_width, int(height * ratio))
+        image = image.resize(new_size, Image.Resampling.LANCZOS)
+    return image
+
 def main():
     st.title('🔍 이미지 텍스트 추출 및 검수 시스템')
     st.markdown('---')
@@ -244,9 +254,10 @@ def main():
         for idx, uploaded_file in enumerate(uploaded_files):
             st.subheader(f"파일 처리 중: {uploaded_file.name}")
             
-            # 이미지 미리보기
+            # 이미지 미리보기 - 크기 조절 적용
             image = Image.open(uploaded_file)
-            st.image(image, caption=uploaded_file.name, use_column_width=True)
+            resized_image = resize_image(image)
+            st.image(resized_image, caption=uploaded_file.name, use_container_width=False)
             
             # OCR 처리
             with st.spinner('텍스트 추출 중...'):
