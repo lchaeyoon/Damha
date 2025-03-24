@@ -233,10 +233,20 @@ def main():
         keyword_notes = get_keywords_from_sheet()
         if not keyword_notes:
             st.error("키워드 데이터를 가져올 수 없습니다.")
+            st.info("구글 시트 연결을 확인해주세요.")
             return
 
-        for uploaded_file in uploaded_files:
+        # 진행 상태 표시
+        progress_text = "전체 진행 상황"
+        progress_bar = st.progress(0)
+        total_files = len(uploaded_files)
+
+        for idx, uploaded_file in enumerate(uploaded_files):
             st.subheader(f"파일 처리 중: {uploaded_file.name}")
+            
+            # 이미지 미리보기
+            image = Image.open(uploaded_file)
+            st.image(image, caption=uploaded_file.name, use_column_width=True)
             
             # OCR 처리
             with st.spinner('텍스트 추출 중...'):
@@ -254,26 +264,40 @@ def main():
                     with st.spinner('검수 결과 생성 중...'):
                         doc_io = create_review_document(extracted_text, keyword_notes)
                         
-                        # 다운로드 버튼
-                        st.download_button(
-                            label="📥 검수 결과 다운로드 (DOCX)",
-                            data=doc_io.getvalue(),
-                            file_name=f'검수결과_{os.path.splitext(uploaded_file.name)[0]}.docx',
-                            mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                        )
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            # 다운로드 버튼
+                            st.download_button(
+                                label="📥 검수 결과 다운로드 (DOCX)",
+                                data=doc_io.getvalue(),
+                                file_name=f'검수결과_{os.path.splitext(uploaded_file.name)[0]}.docx',
+                                mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                            )
                 else:
                     st.error("텍스트를 추출할 수 없습니다.")
             
+            # 진행 상태 업데이트
+            progress_bar.progress((idx + 1) / total_files)
             st.markdown('---')
+
+        st.success(f"모든 파일 처리 완료! (총 {total_files}개)")
 
     # 사용 방법
     with st.expander("사용 방법"):
         st.markdown("""
+        ### 시스템 사용 방법
         1. 검수할 이미지 파일을 업로드합니다. (여러 파일 선택 가능)
-        2. 시스템이 자동으로 텍스트를 추출하고 검수를 진행합니다.
-        3. 각 파일별로 검수 결과를 워드 문서로 다운로드할 수 있습니다.
-        4. 빨간색으로 표시된 부분이 검수 대상 키워드입니다.
-        5. 초록색으로 표시된 부분이 검수 사유입니다.
+        2. 시스템이 자동으로 다음 작업을 수행합니다:
+           - OCR을 통한 텍스트 추출
+           - 추출된 텍스트에서 키워드 검사
+           - 검수 결과 문서 생성
+        3. 각 파일별로 다음 정보를 확인할 수 있습니다:
+           - 원본 이미지 미리보기
+           - 추출된 텍스트 내용
+           - 검수 결과 문서 다운로드
+        4. 검수 결과 문서에서:
+           - 빨간색: 검수 대상 키워드
+           - 초록색: 검수 사유
         """)
 
 if __name__ == '__main__':
