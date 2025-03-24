@@ -142,7 +142,7 @@ def get_keywords_from_sheet():
         creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials, scope)
         client = gspread.authorize(creds)
         
-        sheet = client.open_by_url(st.secrets["spreadsheet_url"]).worksheet('키워드')
+        sheet = client.open_by_url(st.secrets["spreadsheet"]["url"]).worksheet('키워드')
         
         keywords = sheet.col_values(2)[2:]
         reasons = sheet.col_values(3)[2:]
