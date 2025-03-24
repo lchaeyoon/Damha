@@ -1,114 +1,280 @@
 import streamlit as st
 import time
-from selenium import webdriver
-from selenium.webdriver.common.by import By
-from selenium.webdriver.support.ui import WebDriverWait
-from selenium.webdriver.support import expected_conditions as EC
 from docx import Document
+from docx.shared import RGBColor, Pt
+from docx.enum.text import WD_LINE_SPACING
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import os
+import requests
+import uuid
+import json
+import base64
+from PIL import Image
 from datetime import datetime
 import io
-import base64
 
-def check_spelling(text):
-    """네이버 맞춤법 검사기 사용"""
-    driver = None
+# 페이지 설정
+st.set_page_config(
+    page_title="의료광고 OCR 및 검수 시스템",
+    page_icon="🔍",
+    layout="wide"
+)
+
+# CSS 스타일
+st.markdown("""
+    <style>
+    .stButton>button {
+        width: 100%;
+        background-color: #03a9f4;
+        color: white;
+    }
+    .main {
+        padding: 2rem;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+def clean_text(text):
+    """텍스트 정리"""
+    remove_chars = '☑◆●■□△▲▽▼→←↑↓★☆○◎◇◆□■△▲▽▼※~$'
+    for char in remove_chars:
+        text = text.replace(char, '')
+    return ' '.join(text.split()).strip()
+
+def extract_text_with_clova(image_bytes):
+    """CLOVA OCR API를 사용한 텍스트 추출"""
+    api_url = st.secrets["clova_ocr"]["api_url"]
+    secret_key = st.secrets["clova_ocr"]["secret_key"]
+
     try:
-        # Chrome 드라이버 초기화 (headless 모드)
-        options = webdriver.ChromeOptions()
-        options.add_argument('--headless')  # 백그라운드 실행
-        options.add_argument('--no-sandbox')
-        options.add_argument('--disable-dev-shm-usage')
-        driver = webdriver.Chrome(options=options)
+        file_data_base64 = base64.b64encode(image_bytes).decode()
         
-        # 네이버 맞춤법 검사기 페이지 열기
-        driver.get("https://search.naver.com/search.naver?where=nexearch&sm=top_hty&fbm=0&ie=utf8&query=맞춤법+검사기")
+        request_json = {
+            'images': [
+                {
+                    'format': 'jpg',
+                    'name': 'demo',
+                    'data': file_data_base64
+                }
+            ],
+            'requestId': str(uuid.uuid4()),
+            'version': 'V2',
+            'timestamp': int(round(time.time() * 1000))
+        }
+            
+        headers = {
+            'X-OCR-SECRET': secret_key,
+            'Content-Type': 'application/json'
+        }
         
-        # 텍스트 입력창 대기
-        textarea = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, '//*[@id="grammar_checker"]/div/div/div[2]/div[1]/div/div[1]/textarea'))
-        )
+        response = requests.post(api_url, headers=headers, json=request_json)
         
-        # 텍스트 입력
-        textarea.clear()
-        textarea.send_keys(text)
+        if response.status_code == 200:
+            result = response.json()
+            
+            current_line = []
+            lines = []
+            last_y = None
+            y_threshold = 10
+            
+            for image in result.get('images', []):
+                fields = sorted(image.get('fields', []), 
+                             key=lambda x: (x['boundingPoly']['vertices'][0]['y'], 
+                                         x['boundingPoly']['vertices'][0]['x']))
+                
+                for field in fields:
+                    if 'inferText' not in field:
+                        continue
+                        
+                    text = clean_text(field['inferText'])
+                    if not text:
+                        continue
+                        
+                    current_y = field['boundingPoly']['vertices'][0]['y']
+                    
+                    if last_y is not None and abs(current_y - last_y) > y_threshold:
+                        if current_line:
+                            cleaned_line = clean_text(' '.join(current_line))
+                            if cleaned_line:
+                                lines.append(cleaned_line)
+                            current_line = []
+                    
+                    current_line.append(text)
+                    last_y = current_y
+                
+                if current_line:
+                    cleaned_line = clean_text(' '.join(current_line))
+                    if cleaned_line:
+                        lines.append(cleaned_line)
+            
+            return '\n'.join(lines)
+            
+        else:
+            st.error(f"API 오류: {response.status_code}")
+            st.error(f"오류 메시지: {response.text}")
+            return None
+                
+    except Exception as e:
+        st.error(f"오류 발생: {str(e)}")
+        return None
+
+@st.cache_resource
+def get_keywords_from_sheet():
+    """구글 시트에서 키워드와 사유 가져오기"""
+    try:
+        scope = ['https://spreadsheets.google.com/feeds',
+                'https://www.googleapis.com/auth/drive']
         
-        # 검사하기 버튼 클릭
-        check_button = driver.find_element(By.XPATH, '//*[@id="grammar_checker"]/div/div/div[2]/div[1]/div/div[2]/button')
-        check_button.click()
+        credentials = {
+            "type": st.secrets["gcp_service_account"]["type"],
+            "project_id": st.secrets["gcp_service_account"]["project_id"],
+            "private_key_id": st.secrets["gcp_service_account"]["private_key_id"],
+            "private_key": st.secrets["gcp_service_account"]["private_key"],
+            "client_email": st.secrets["gcp_service_account"]["client_email"],
+            "client_id": st.secrets["gcp_service_account"]["client_id"],
+            "auth_uri": st.secrets["gcp_service_account"]["auth_uri"],
+            "token_uri": st.secrets["gcp_service_account"]["token_uri"],
+            "auth_provider_x509_cert_url": st.secrets["gcp_service_account"]["auth_provider_x509_cert_url"],
+            "client_x509_cert_url": st.secrets["gcp_service_account"]["client_x509_cert_url"]
+        }
         
-        # 결과가 나올 때까지 대기
-        time.sleep(5)
+        creds = ServiceAccountCredentials.from_json_keyfile_dict(credentials, scope)
+        client = gspread.authorize(creds)
         
-        # 결과 저장 - XPath 사용
-        result = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.XPATH, '//*[@id="grammar_checker"]/div/div/div[2]/div[2]/div/div/div[2]/div'))
-        ).text
+        sheet = client.open_by_url(st.secrets["spreadsheet_url"]).worksheet('키워드')
         
-        return result, None
+        keywords = sheet.col_values(2)[2:]
+        reasons = sheet.col_values(3)[2:]
+        
+        keyword_notes = {}
+        for keyword, reason in zip(keywords, reasons):
+            if keyword.strip():
+                keyword_notes[keyword] = reason if reason else ''
+                
+        return keyword_notes
         
     except Exception as e:
-        return None, str(e)
-    
-    finally:
-        if driver:
-            driver.quit()
+        st.error(f"구글 시트 데이터 가져오기 실패: {str(e)}")
+        return None
 
-def create_word_document(original_text, corrected_text):
-    """워드 문서 생성"""
+def create_review_document(text, keyword_notes):
+    """검수 결과 문서 생성"""
     doc = Document()
     
-    # 제목 추가
-    doc.add_heading('맞춤법 검사 결과', 0)
+    style = doc.styles['Normal']
+    style.font.size = Pt(10)
+    style.font.name = '맑은 고딕'
     
-    # 원본 텍스트 추가
-    doc.add_heading('원본 텍스트:', level=1)
-    doc.add_paragraph(original_text)
+    lines = text.split('\n')
     
-    # 교정된 텍스트 추가
-    doc.add_heading('교정된 텍스트:', level=1)
-    doc.add_paragraph(corrected_text)
+    for line in lines:
+        paragraph = doc.add_paragraph()
+        paragraph.paragraph_format.space_after = Pt(0)
+        paragraph.paragraph_format.space_before = Pt(0)
+        paragraph.paragraph_format.line_spacing = 1.0
+        
+        remaining_text = line
+        current_pos = 0
+        
+        while remaining_text:
+            earliest_keyword = None
+            earliest_pos = len(remaining_text)
+            
+            for keyword in keyword_notes:
+                pos = remaining_text.find(keyword)
+                if pos != -1 and pos < earliest_pos:
+                    earliest_keyword = keyword
+                    earliest_pos = pos
+            
+            if earliest_keyword:
+                if earliest_pos > 0:
+                    run = paragraph.add_run(remaining_text[:earliest_pos])
+                    run.font.name = "맑은 고딕"
+                    run.font.size = Pt(10)
+                
+                run = paragraph.add_run(earliest_keyword)
+                run.font.name = "맑은 고딕"
+                run.font.size = Pt(10)
+                run.font.color.rgb = RGBColor(255, 0, 0)
+                run.bold = True
+                
+                if keyword_notes[earliest_keyword]:
+                    run = paragraph.add_run(f" ({keyword_notes[earliest_keyword]}) ")
+                    run.font.name = "맑은 고딕"
+                    run.font.size = Pt(10)
+                    run.font.color.rgb = RGBColor(0, 128, 0)
+                
+                remaining_text = remaining_text[earliest_pos + len(earliest_keyword):]
+            else:
+                if remaining_text:
+                    run = paragraph.add_run(remaining_text)
+                    run.font.name = "맑은 고딕"
+                    run.font.size = Pt(10)
+                break
     
-    # 현재 시간 추가
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    doc.add_paragraph(f'\n검사 시간: {now}')
-    
-    # 메모리에 저장
     doc_io = io.BytesIO()
     doc.save(doc_io)
     doc_io.seek(0)
-    
     return doc_io
 
 def main():
-    st.title('네이버 맞춤법 검사기')
-    
-    # 파일 업로드
-    uploaded_file = st.file_uploader("텍스트 파일 선택 (.txt)", type=['txt'])
-    
-    if uploaded_file:
-        text = uploaded_file.read().decode('utf-8')
-        st.text_area("원본 텍스트", text, height=200)
-        
-        if st.button('맞춤법 검사 시작'):
-            with st.spinner('맞춤법 검사 중...'):
-                result, error = check_spelling(text)
+    st.title('🔍 의료광고 OCR 및 검수 시스템')
+    st.markdown('---')
+
+    # 이미지 업로드
+    uploaded_files = st.file_uploader(
+        "이미지 파일을 업로드하세요 (여러 파일 선택 가능)",
+        type=['png', 'jpg', 'jpeg'],
+        accept_multiple_files=True
+    )
+
+    if uploaded_files:
+        keyword_notes = get_keywords_from_sheet()
+        if not keyword_notes:
+            st.error("키워드 데이터를 가져올 수 없습니다.")
+            return
+
+        for uploaded_file in uploaded_files:
+            st.subheader(f"파일 처리 중: {uploaded_file.name}")
+            
+            # OCR 처리
+            with st.spinner('텍스트 추출 중...'):
+                image_bytes = uploaded_file.getvalue()
+                extracted_text = extract_text_with_clova(image_bytes)
                 
-                if result:
-                    st.success('맞춤법 검사가 완료되었습니다!')
-                    st.text_area("검사 결과", result, height=200)
+                if extracted_text:
+                    st.success("텍스트 추출 완료")
                     
-                    # 워드 파일 생성
-                    doc_io = create_word_document(text, result)
+                    # 추출된 텍스트 표시
+                    with st.expander("추출된 텍스트 보기"):
+                        st.text_area("", extracted_text, height=200)
                     
-                    # 다운로드 버튼
-                    st.download_button(
-                        label="결과 다운로드 (DOCX)",
-                        data=doc_io.getvalue(),
-                        file_name=f'맞춤법검사결과_{datetime.now().strftime("%Y%m%d_%H%M%S")}.docx',
-                        mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-                    )
+                    # 검수 결과 문서 생성
+                    with st.spinner('검수 결과 생성 중...'):
+                        doc_io = create_review_document(extracted_text, keyword_notes)
+                        
+                        # 다운로드 버튼
+                        st.download_button(
+                            label="📥 검수 결과 다운로드 (DOCX)",
+                            data=doc_io.getvalue(),
+                            file_name=f'검수결과_{os.path.splitext(uploaded_file.name)[0]}.docx',
+                            mime='application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+                        )
                 else:
-                    st.error(f'오류가 발생했습니다: {error}')
+                    st.error("텍스트를 추출할 수 없습니다.")
+            
+            st.markdown('---')
+
+    # 사용 방법
+    with st.expander("사용 방법"):
+        st.markdown("""
+        1. 검수할 이미지 파일을 업로드합니다. (여러 파일 선택 가능)
+        2. 시스템이 자동으로 텍스트를 추출하고 검수를 진행합니다.
+        3. 각 파일별로 검수 결과를 워드 문서로 다운로드할 수 있습니다.
+        4. 빨간색으로 표시된 부분이 검수 대상 키워드입니다.
+        5. 초록색으로 표시된 부분이 검수 사유입니다.
+        """)
 
 if __name__ == '__main__':
     main() 
