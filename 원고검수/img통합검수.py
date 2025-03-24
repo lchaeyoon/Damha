@@ -16,7 +16,7 @@ import io
 
 # 페이지 설정
 st.set_page_config(
-    page_title="의료광고 OCR 및 검수 시스템",
+    page_title="이미지 텍스트 추출 및 검수 시스템",
     page_icon="🔍",
     layout="wide"
 )
